@@ -1,0 +1,22 @@
+{
+  "version": "0.1.0",
+  "configurations": [
+    {
+      "name": "Debug NanoVLLM Bench",
+      "type": "python",
+      "request": "launch",
+      "program": "bench.py",
+      "pythonPath": "/home/douliyang/.conda/envs/nanovllm/bin/python",
+      "cwd": "/home/douliyang/large/mlsys/nano-vllm",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "CONDA_PREFIX": "/home/douliyang/.conda/envs/nanovllm",
+        "PATH": "/home/douliyang/.conda/envs/nanovllm/bin:${env:PATH}",
+        "LD_LIBRARY_PATH": "/home/douliyang/.conda/envs/nanovllm/lib:${env:LD_LIBRARY_PATH}",
+        "PYTHONPATH": "/home/douliyang/large/mlsys/nano-vllm",
+        "HF_ENDPOINT": "https://hf-mirror.com"
+      }
+    }
+  ]
+}
