@@ -71,6 +71,7 @@ class Sequence:
         self.last_token = token_id
         self.num_tokens += 1
 
+    # 用于pickle模块进行loads和dumps
     def __getstate__(self):
         return (self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.block_table,
                 self.token_ids if self.num_completion_tokens == 0 else self.last_token)

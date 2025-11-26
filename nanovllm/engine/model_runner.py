@@ -12,6 +12,7 @@ from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
 
 
+# 负责模型的加载与推理
 class ModelRunner:
 
     def __init__(self, config: Config, rank: int, event: Event | list[Event]):
@@ -23,6 +24,7 @@ class ModelRunner:
         self.rank = rank
         self.event = event
 
+        # pytorch分布式推理初始化
         dist.init_process_group("nccl", "tcp://localhost:2333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank)
         default_dtype = torch.get_default_dtype()
@@ -38,6 +40,7 @@ class ModelRunner:
         torch.set_default_device("cpu")
         torch.set_default_dtype(default_dtype)
 
+        # Tensor parallelism下，rank 0进程通过共享内存与其他rank通信 
         if self.world_size > 1:
             if rank == 0:
                 self.shm = SharedMemory(name="nanovllm", create=True, size=2**20)
@@ -83,17 +86,22 @@ class ModelRunner:
             event.set()
 
     def call(self, method_name, *args):
+        # TODO(leon): 多GPU推理，后续dump
+        # Tensor parallelism下，rank 0进程通过共享内存与其他rank通信
         if self.world_size > 1 and self.rank == 0:
             self.write_shm(method_name, *args)
         method = getattr(self, method_name, None)
         return method(*args)
 
     def warmup_model(self):
+        # 清理GPU内存与统计
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
+        # 计算最大batch长度
         max_num_batched_tokens, max_model_len = self.config.max_num_batched_tokens, self.config.max_model_len
         num_seqs = min(max_num_batched_tokens // max_model_len, self.config.max_num_seqs)
         seqs = [Sequence([0] * max_model_len) for _ in range(num_seqs)]
+        # 热身阶段，跑一把全0的sequence
         self.run(seqs, True)
         torch.cuda.empty_cache()
 
@@ -123,6 +131,7 @@ class ModelRunner:
         block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         return block_tables
 
+    # TODO(leon): prefill阶段做kv cache缓冲准备
     def prepare_prefill(self, seqs: list[Sequence]):
         input_ids = []
         positions = []
@@ -161,6 +170,7 @@ class ModelRunner:
         set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
         return input_ids, positions
 
+    # TODO(leon): paged attention + kvcache来做decode阶段的准备
     def prepare_decode(self, seqs: list[Sequence]):
         input_ids = []
         positions = []

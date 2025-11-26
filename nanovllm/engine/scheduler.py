@@ -23,11 +23,14 @@ class Scheduler:
 
     def schedule(self) -> tuple[list[Sequence], bool]:
         # prefill
+        # Nano-VLLM优先调度prefill任务，然后是decode任务，且两者不混合
         scheduled_seqs = []
         num_seqs = 0
         num_batched_tokens = 0
+        # 批次服务seq请求
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
+            # 判断加上seq是否超出能够serving的最大seq数 以及 是否有足够显存做kv cache
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
                 break
             num_seqs += 1
@@ -43,8 +46,10 @@ class Scheduler:
         # decode
         while self.running and num_seqs < self.max_num_seqs:
             seq = self.running.popleft()
+            # 抢占逻辑，如果显存空间不够，则抢占别的序列，直到空间足够
             while not self.block_manager.can_append(seq):
                 if self.running:
+                    # 将KV Cache换出到cpu或直接丢弃
                     self.preempt(self.running.pop())
                 else:
                     self.preempt(seq)

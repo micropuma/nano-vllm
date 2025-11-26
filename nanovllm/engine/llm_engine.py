@@ -33,6 +33,9 @@ class LLMEngine:
         self.scheduler = Scheduler(config)
         atexit.register(self.exit)
 
+    # 程序退出，资源释放
+    # 1. 删除model_runner对象  
+    # 2. 显示调用每个子进程的join方法，等待子进程结束
     def exit(self):
         self.model_runner.call("exit")
         del self.model_runner
@@ -45,6 +48,10 @@ class LLMEngine:
         seq = Sequence(prompt, sampling_params)
         self.scheduler.add(seq)
 
+    # step by step生成token
+    # 1. prefill阶段，填充输入序列
+    # 2. decode阶段，逐步生成token
+    # 3. 不断更新scheduler的状态
     def step(self):
         seqs, is_prefill = self.scheduler.schedule()
         token_ids = self.model_runner.call("run", seqs, is_prefill)
@@ -56,6 +63,7 @@ class LLMEngine:
     def is_finished(self):
         return self.scheduler.is_finished()
 
+    # LLM engine的核心方法，用于生成文本
     def generate(
         self,
         prompts: list[str] | list[list[int]],
@@ -66,6 +74,7 @@ class LLMEngine:
             pbar = tqdm(total=len(prompts), desc="Generating", dynamic_ncols=True)
         if not isinstance(sampling_params, list):
             sampling_params = [sampling_params] * len(prompts)
+        # 将请求添加到LLMEngine维护的waiting队列中
         for prompt, sp in zip(prompts, sampling_params):
             self.add_request(prompt, sp)
         outputs = {}

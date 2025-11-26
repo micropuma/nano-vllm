@@ -23,6 +23,7 @@ class Block:
         self.token_ids = []
 
 
+# TODO(leon): KV Cache块管理逻辑
 class BlockManager:
 
     def __init__(self, num_blocks: int, block_size: int):

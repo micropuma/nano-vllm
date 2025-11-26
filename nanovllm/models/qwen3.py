@@ -191,6 +191,7 @@ class Qwen3ForCausalLM(nn.Module):
         "up_proj": ("gate_up_proj", 1),
     }
 
+    # 模型的超参来自huggingface的Qwen3Config
     def __init__(
         self,
         config: Qwen3Config

@@ -17,6 +17,7 @@ class Config:
     kvcache_block_size: int = 256
     num_kvcache_blocks: int = -1
 
+    # 后处理逻辑，检查配置的合法性
     def __post_init__(self):
         assert os.path.isdir(self.model)
         assert self.kvcache_block_size % 256 == 0

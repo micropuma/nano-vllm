@@ -40,6 +40,9 @@ def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor,
     store_kvcache_kernel[(N,)](key, key.stride(0), value, value.stride(0), k_cache, v_cache, slot_mapping, D)
 
 
+# 借助于flashattention优化，实现注意力机制  
+# 1. 支持flash attention
+# 2. 支持kv cache
 class Attention(nn.Module):
 
     def __init__(
