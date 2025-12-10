@@ -26,6 +26,7 @@
                     │ Sampler         │  ← 采样器
                     └─────────────────┘
 ```
+
 ### 项目结构  
 ```shell
 nanovllm/
@@ -55,7 +56,39 @@ nanovllm/
 
 ## 全流程梳理   
 
-## KV Cache机制实现  
+整体的数据流程如下：  
+```shell
+用户请求 → LLMEngine.add_request() → Scheduler.waiting 队列
+                                          ↓
+主循环 → Scheduler.schedule() → 选出本步要执行的请求
+                                          ↓
+       → ModelRunner.run() → 模型前向 + 采样
+                                          ↓
+       → Scheduler.postprocess() → 更新状态，终止判断
+                                          ↓
+       → 输出完成的请求
+```
+
+调度逻辑流程图如下：  
+```shell
+schedule() 被调用
+    ├─ waiting 非空？
+    │   ├─ 是：尝试 Prefill admit
+    │   │       逐个检查 waiting 队首
+    │   │       满足约束则 allocate + RUNNING + 移入 running
+    │   │       返回 (scheduled, is_prefill=True)
+    │   └─ 否：进入 Decode
+    │           逐个处理 running
+    │           需要新块但没有？抢占其他请求或自抢占
+    │           may_append
+    │           返回 (scheduled, is_prefill=False)
+    │
+postprocess() 被调用
+    ├─ 追加 token
+    └─ 检查终止，deallocate + FINISHED
+```
+
+## KV Cache机制实现 
 ```python
 def prepare_prefill(self, seqs: list[Sequence]):
         input_ids = []
@@ -139,3 +172,4 @@ class Attention(nn.Module):
 1. [一条prompt的推理之路](https://www.zhihu.com/search?type=content&q=nanovllm)
 2. [nano-vllm源码详细阅读](https://kinnari-blog.vercel.app/posts/nano-vllm/note/)
 3. [nano-vllm技术概览](https://zhuanlan.zhihu.com/p/1925484783229698084)
+4. [nano-vllm学习后记](https://zhuanlan.zhihu.com/p/1977336847567983629)
