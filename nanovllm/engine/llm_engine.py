@@ -23,6 +23,8 @@ class LLMEngine:
         ctx = mp.get_context("spawn")
         for i in range(1, config.tensor_parallel_size):
             event = ctx.Event()
+            # 子进程通过ctx.Process来启动，主进程通过如下代码启动即可：  
+            # self.model_runner = ModelRunner(config, 0, self.events)
             process = ctx.Process(target=ModelRunner, args=(config, i, event))
             process.start()
             self.ps.append(process)

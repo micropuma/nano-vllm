@@ -33,6 +33,7 @@ class BlockManager:
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: set[int] = set()
 
+    # paged attention + prefix caching
     @classmethod
     def compute_hash(cls, token_ids: list[int], prefix: int = -1):
         h = xxhash.xxh64()
@@ -57,12 +58,16 @@ class BlockManager:
     def can_allocate(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= seq.num_blocks
 
+    # BlockManager给sequence提前开辟kv cache缓存
     def allocate(self, seq: Sequence):
-        assert not seq.block_table
+        assert not seq.block_table    # 还没有分配过kv cache内存
         h = -1
         cache_miss = False
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
+
+            # 只有整个block都填满才能计算hash值，否则后续的decode阶段一个block里面的
+            # token还有变化，hash值会产生变化
             h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
             block_id = self.hash_to_block_id.get(h, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:

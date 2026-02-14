@@ -31,6 +31,7 @@ class Scheduler:
         while self.waiting and num_seqs < self.max_num_seqs:
             seq = self.waiting[0]
             # 判断加上seq是否超出能够serving的最大seq数 以及 是否有足够显存做kv cache
+            # nanoVLLM的kvcache还搭配paged attention，所以要计算block数量
             if num_batched_tokens + len(seq) > self.max_num_batched_tokens or not self.block_manager.can_allocate(seq):
                 break
             num_seqs += 1

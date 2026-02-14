@@ -73,6 +73,7 @@ class Sequence:
 
     # 用于pickle模块进行loads和dumps
     def __getstate__(self):
+        # prefill阶段保存所有token，decode阶段只用存最后一个token即可
         return (self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.block_table,
                 self.token_ids if self.num_completion_tokens == 0 else self.last_token)
 
