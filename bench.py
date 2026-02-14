@@ -13,7 +13,8 @@ def main():
 
     path = os.path.expanduser("/home/douliyang/large/mlsys/nano-vllm/models/Qwen3-0.6B")
     # 初始化LLM Engine
-    llm = LLM(path, enforce_eager=False, max_model_len=4096)
+    llm = LLM(path, enforce_eager=False, max_model_len=4096, tensor_parallel_size=4)  # TP version
+    # llm = LLM(path, enforce_eager=False, max_model_len=4096)
 
     # [256, 1024] 
     prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]

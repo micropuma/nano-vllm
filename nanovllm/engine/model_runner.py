@@ -35,6 +35,8 @@ class ModelRunner:
         self.sampler = Sampler()
         self.warmup_model()
         self.allocate_kv_cache()
+
+        # 录制不同batchsize的cudagraph，加速后续的inference
         if not self.enforce_eager:
             self.capture_cudagraph()
         torch.set_default_device("cpu")
@@ -61,6 +63,7 @@ class ModelRunner:
         torch.cuda.synchronize()
         dist.destroy_process_group()
 
+    # TensorPrallelism模式下，其他GPU不断地从sharedmem中获取要执行的函数和参数，并执行
     def loop(self):
         while True:
             method_name, args = self.read_shm()
@@ -82,9 +85,13 @@ class ModelRunner:
         n = len(data)
         self.shm.buf[0:4] = n.to_bytes(4, "little")
         self.shm.buf[4:n+4] = data
-        for event in self.event:
+        for event in self.event:    # self.event中存储了所有rank1->N的event，参考llm_engine.py的__init__实现
             event.set()
 
+    # 这是rank0的执行逻辑：
+    # 1. 先将method name和args写入shmem
+    # 2. rank1 -> N读取method和args，并执行method（在modelRunner的init环节，rank1 -> N已经启动loop等待了）
+    # 3. rank0 自行执行
     def call(self, method_name, *args):
         # TODO(leon): 多GPU推理，后续dump
         # Tensor parallelism下，rank 0进程通过共享内存与其他rank通信
@@ -105,6 +112,8 @@ class ModelRunner:
         self.run(seqs, True)
         torch.cuda.empty_cache()
 
+    # 提前开辟KV cache需要用到的总空间，空间连续
+    # 维度：2（K&V），L（模型多少层），B（block数目），T（每个block多少token），H（KV头数，multihead atten），D（headDim）
     def allocate_kv_cache(self):
         config = self.config
         hf_config = config.hf_config
@@ -115,12 +124,15 @@ class ModelRunner:
         num_kv_heads = hf_config.num_key_value_heads // self.world_size
         head_dim = getattr(hf_config, "head_dim", hf_config.hidden_size // hf_config.num_attention_heads)
         block_bytes = 2 * hf_config.num_hidden_layers * self.block_size * num_kv_heads * head_dim * hf_config.torch_dtype.itemsize
+        
+        # 预分配目前GPU所能支持的最大KV cache存储空间
         config.num_kvcache_blocks = int(total * config.gpu_memory_utilization - used - peak + current) // block_bytes
-        assert config.num_kvcache_blocks > 0
+        assert config.num_kvcache_blocks > 0    
         self.kv_cache = torch.empty(2, hf_config.num_hidden_layers, config.num_kvcache_blocks, self.block_size, num_kv_heads, head_dim)
         layer_id = 0
         for module in self.model.modules():
             if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
+                # 分配每一层
                 module.k_cache = self.kv_cache[0, layer_id]
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
@@ -230,12 +242,15 @@ class ModelRunner:
         hf_config = config.hf_config
         max_bs = min(self.config.max_num_seqs, 512)
         max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size
+
+        # 占位符，下一次inference直接拷贝到这些占位符
         input_ids = torch.zeros(max_bs, dtype=torch.int64)
         positions = torch.zeros(max_bs, dtype=torch.int64)
         slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
         context_lens = torch.zeros(max_bs, dtype=torch.int32)
         block_tables = torch.zeros(max_bs, max_num_blocks, dtype=torch.int32)
         outputs = torch.zeros(max_bs, hf_config.hidden_size)
+
         self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))
         self.graphs = {}
         self.graph_pool = None
@@ -244,14 +259,17 @@ class ModelRunner:
             graph = torch.cuda.CUDAGraph()
             set_context(False, slot_mapping=slot_mapping[:bs], context_lens=context_lens[:bs], block_tables=block_tables[:bs])
             outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # warmup
+            # 复用graph pool，防止oom（推理阶段大量activation + kvcache + weight要存储，不同bach间要复用memory）
             with torch.cuda.graph(graph, self.graph_pool):
                 outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # capture
+            # 只需存一份最大尺寸的graph图即可，小尺寸复用
             if self.graph_pool is None:
                 self.graph_pool = graph.pool()
             self.graphs[bs] = graph
             torch.cuda.synchronize()
             reset_context()
 
+        # 将cudagraph记录的所有东西打包成一个dict
         self.graph_vars = dict(
             input_ids=input_ids,
             positions=positions,
