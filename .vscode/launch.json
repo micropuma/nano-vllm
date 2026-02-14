@@ -5,7 +5,7 @@
       "name": "Debug NanoVLLM Bench",
       "type": "python",
       "request": "launch",
-      "program": "bench.py",
+      "program": "example.py",
       "pythonPath": "/home/douliyang/.conda/envs/nanovllm/bin/python",
       "cwd": "/home/douliyang/large/mlsys/nano-vllm",
       "console": "integratedTerminal",

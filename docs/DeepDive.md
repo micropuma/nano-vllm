@@ -270,3 +270,7 @@ def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill
 3. [nano-vllm技术概览](https://zhuanlan.zhihu.com/p/1925484783229698084)
 4. [nano-vllm学习后记](https://zhuanlan.zhihu.com/p/1977336847567983629) :fire:
 5. [DeepWiki nanovllm](https://deepwiki.com/GeeeekExplorer/nano-vllm) :fire:
+
+:fire::fire:核心参考资料  
+1. [NanoVLLM part1](https://neutree.ai/blog/nano-vllm-part-1)
+2. [NanoVLLM part2](https://neutree.ai/blog/nano-vllm-part-2)
