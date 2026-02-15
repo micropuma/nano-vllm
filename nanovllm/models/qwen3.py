@@ -10,7 +10,7 @@ from nanovllm.layers.linear import QKVParallelLinear, MergedColumnParallelLinear
 from nanovllm.layers.rotary_embedding import get_rope
 from nanovllm.layers.embed_head import VocabParallelEmbedding, ParallelLMHead
 
-
+# 一个并行版本的qwen3模型
 class Qwen3Attention(nn.Module):
 
     def __init__(

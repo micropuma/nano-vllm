@@ -137,6 +137,7 @@ class ModelRunner:
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
 
+    # block_tables 是一个二维张量，每行是一个序列的物理块列表，需要 pad 到相同长度
     def prepare_block_tables(self, seqs: list[Sequence]):
         max_len = max(len(seq.block_table) for seq in seqs)
         block_tables = [seq.block_table + [-1] * (max_len - len(seq.block_table)) for seq in seqs]

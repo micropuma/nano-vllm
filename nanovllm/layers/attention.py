@@ -7,6 +7,9 @@ from flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 from nanovllm.utils.context import get_context
 
 
+# triton kernel，完成kv cache的写入  
+# slot_mapping 告诉我们每个 token 的 KV 应该写到物理缓存的哪个位置
+
 @triton.jit
 def store_kvcache_kernel(
     key_ptr,
@@ -25,6 +28,9 @@ def store_kvcache_kernel(
     value_offsets = idx * value_stride + tl.arange(0, D)
     key = tl.load(key_ptr + key_offsets)
     value = tl.load(value_ptr + value_offsets)
+
+    # slot是槽位，是blockid * BLOCK_SIZE + block_offset
+    # D是num_kv_heads, head_dim两个维度展开的一维
     cache_offsets = slot * D + tl.arange(0, D)
     tl.store(k_cache_ptr + cache_offsets, key)
     tl.store(v_cache_ptr + cache_offsets, value)
@@ -58,6 +64,21 @@ class Attention(nn.Module):
         self.scale = scale
         self.num_kv_heads = num_kv_heads
         self.k_cache = self.v_cache = torch.tensor([])
+
+
+    # flash attention接口解读：
+    # o = flash_attn_varlen_func(
+    #     q,                              # [total_q, num_heads, head_dim]
+    #     k,                              # [total_k, num_kv_heads, head_dim]
+    #     v,                              # [total_k, num_kv_heads, head_dim]
+    #     cu_seqlens_q=cu_seqlens_q,      # [batch_size + 1]
+    #     cu_seqlens_k=cu_seqlens_k,      # [batch_size + 1]
+    #     max_seqlen_q=max_seqlen_q,      # int
+    #     max_seqlen_k=max_seqlen_k,      # int
+    #     softmax_scale=scale,
+    #     causal=True,
+    #     block_table=block_tables        # [batch_size, max_blocks] 或 None
+    # )
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         context = get_context()
