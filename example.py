@@ -1,6 +1,7 @@
 import os
 from nanovllm import LLM, SamplingParams
 from transformers import AutoTokenizer
+import torch.cuda.nvtx as nvtx
 
 
 def main():
@@ -21,7 +22,11 @@ def main():
         )
         for prompt in prompts
     ]
+
+    # 辅助nsys工具抓取inference流程
+    nvtx.range_push("inference")
     outputs = llm.generate(prompts, sampling_params)
+    nvtx.range_pop()
 
     for prompt, output in zip(prompts, outputs):
         print("\n")
