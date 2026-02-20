@@ -17,9 +17,8 @@
    - [3.6 Paged KV Cache + Flash Attention](#36-paged-kv-cache--flash-attention)
    - [3.7 SwiGLU MLP](#37-swiglu-mlp)
    - [3.8 LM Head + 采样](#38-lm-head--采样)
-4. [NanoVLLM 实现全景图](#四nanovllm-实现全景图)
-5. [关键实现细节与注意事项](#五关键实现细节与注意事项)
-6. [后续加速方向](#六后续加速方向)
+4. [关键实现细节与注意事项](#五关键实现细节与注意事项)
+5. [后续加速方向](#六后续加速方向)
 
 ---
 
