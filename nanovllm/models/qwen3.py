@@ -10,7 +10,9 @@ from nanovllm.layers.linear import QKVParallelLinear, MergedColumnParallelLinear
 from nanovllm.layers.rotary_embedding import get_rope
 from nanovllm.layers.embed_head import VocabParallelEmbedding, ParallelLMHead
 
-# 一个并行版本的qwen3模型
+# 参考https://liyuan24.github.io/writings/2025_12_18_nanovllm_tensor_parallel_kernel_fusion.html
+# 一个TP并行版本的qwen3模型
+# Q，K，V使用列并行，O使用行并行
 class Qwen3Attention(nn.Module):
 
     def __init__(
@@ -29,6 +31,8 @@ class Qwen3Attention(nn.Module):
         tp_size = dist.get_world_size()
         self.total_num_heads = num_heads
         assert self.total_num_heads % tp_size == 0
+
+        # Q，K，V按照heads维度切分
         self.num_heads = self.total_num_heads // tp_size
         self.total_num_kv_heads = num_kv_heads
         assert self.total_num_kv_heads % tp_size == 0
@@ -51,6 +55,7 @@ class Qwen3Attention(nn.Module):
             hidden_size,
             bias=False,
         )
+        # 旋转编码
         self.rotary_emb = get_rope(
             self.head_dim,
             rotary_dim=self.head_dim,
@@ -73,11 +78,14 @@ class Qwen3Attention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
+        # QKV合并投影后再切分，减少一次全量hidden_size维度的通信
         qkv = self.qkv_proj(hidden_states)
         q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
+        # reshape成多头的形式，注意q和k的num_heads可能和v的num_kv_heads不同
         q = q.view(-1, self.num_heads, self.head_dim)
         k = k.view(-1, self.num_kv_heads, self.head_dim)
         v = v.view(-1, self.num_kv_heads, self.head_dim)
+        
         if not self.qkv_bias:
             q = self.q_norm(q)
             k = self.k_norm(k)
@@ -158,7 +166,7 @@ class Qwen3DecoderLayer(nn.Module):
         hidden_states = self.mlp(hidden_states)
         return hidden_states, residual
 
-
+# attention主体部分
 class Qwen3Model(nn.Module):
 
     def __init__(
@@ -183,6 +191,7 @@ class Qwen3Model(nn.Module):
         return hidden_states
 
 
+# Qwen3模型入口，包含模型主体和lm_head
 class Qwen3ForCausalLM(nn.Module):
     packed_modules_mapping = {
         "q_proj": ("qkv_proj", "q"),

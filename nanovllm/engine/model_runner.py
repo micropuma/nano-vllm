@@ -44,11 +44,16 @@ class ModelRunner:
 
         # Tensor parallelism下，rank 0进程通过共享内存与其他rank通信 
         if self.world_size > 1:
+            # SharedMemory只能在同一台机器的不同进程间通信，
+            # TensorParallelism的rank 0..N也是在同一台机器的不同进程，
+            # 所以可以用SharedMemory来做IPC通信
             if rank == 0:
                 self.shm = SharedMemory(name="nanovllm", create=True, size=2**20)
                 dist.barrier()
             else:
                 dist.barrier()
+                # create default是False
+                # smem通过name来唯一标识
                 self.shm = SharedMemory(name="nanovllm")
                 self.loop()
 
@@ -133,6 +138,7 @@ class ModelRunner:
         for module in self.model.modules():
             if hasattr(module, "k_cache") and hasattr(module, "v_cache"):
                 # 分配每一层
+                # 这时候numel非空了
                 module.k_cache = self.kv_cache[0, layer_id]
                 module.v_cache = self.kv_cache[1, layer_id]
                 layer_id += 1
@@ -193,6 +199,7 @@ class ModelRunner:
             input_ids.append(seq.last_token)
             positions.append(len(seq) - 1)
             context_lens.append(len(seq))
+            # 为kv cache写入准备好地址
             slot_mapping.append(seq.block_table[-1] * self.block_size + seq.last_block_num_tokens  - 1)
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
@@ -230,6 +237,7 @@ class ModelRunner:
 
     # 这里是给模型做prefill和decode流程入口
     def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
+        # 这里的input_ids和positions是rank 0自己准备的，其他rank的input_ids和positions是通过共享内存传过来的
         input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
         logits = self.run_model(input_ids, positions, is_prefill)
