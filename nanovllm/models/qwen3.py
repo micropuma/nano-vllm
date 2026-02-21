@@ -104,6 +104,8 @@ class Qwen3MLP(nn.Module):
         hidden_act: str,
     ) -> None:
         super().__init__()
+
+        # 将swiglu的两次矩阵乘变成一次矩阵乘
         self.gate_up_proj = MergedColumnParallelLinear(
             hidden_size,
             [intermediate_size] * 2,

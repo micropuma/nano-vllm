@@ -2,6 +2,7 @@ import torch
 from torch import nn
 
 
+# TODO(Leon): 后续dump一下TorchCompile -> Triton 得到的kernel
 class RMSNorm(nn.Module):
 
     def __init__(
@@ -31,8 +32,10 @@ class RMSNorm(nn.Module):
         x: torch.Tensor,
         residual: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        # 将残差连接和RMSNorm融合，减少一次内存访问
         orig_dtype = x.dtype
         x = x.float().add_(residual.float())
+        # resudual更新为previous + x
         residual = x.to(orig_dtype)
         var = x.pow(2).mean(dim=-1, keepdim=True)
         x.mul_(torch.rsqrt(var + self.eps))
