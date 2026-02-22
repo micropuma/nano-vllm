@@ -72,7 +72,7 @@ self.kv_cache = torch.empty(2, L, B, T, H, D)
 
 以 Qwen3-8B（`L=32, num_kv_heads=8, head_dim=128, block_size=256, bf16`）、单卡为例：
 
-$$\text{block\_bytes} = 2 \times 32 \times 256 \times 8 \times 128 \times 2 = 268\text{MB/block}$$
+$$\text{block bytes} = 2 \times 32 \times 256 \times 8 \times 128 \times 2 = 268 \text{ MB/block}$$
 
 ### 2.4 Step 3: 绑定到每层 Attention
 
@@ -113,7 +113,7 @@ class BlockManager:
 
 物理 KV 存储的地址计算：
 
-$$\text{slot} = \text{block\_table}[i] \times \text{block\_size} + \text{offset}$$
+$$\text{slot} = \text{block table}[i] \times \text{block size} + \text{offset}$$
 
 这就是 **Paged Attention** 的核心：序列的 KV 在物理上不需要连续，通过 `block_table` 间接寻址，类似操作系统的页表机制。
 
