@@ -59,6 +59,7 @@ class BlockManager:
         return len(self.free_block_ids) >= seq.num_blocks
 
     # BlockManager给sequence提前开辟kv cache缓存
+    # prefill阶段
     def allocate(self, seq: Sequence):
         assert not seq.block_table    # 还没有分配过kv cache内存
         h = -1
@@ -70,9 +71,10 @@ class BlockManager:
             # token还有变化，hash值会产生变化
             h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
             block_id = self.hash_to_block_id.get(h, -1)
-            if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
+            if block_id == -1 or self.blocks[block_id].token_ids != token_ids:  # 额外校验，防止哈希碰撞
                 cache_miss = True
             if cache_miss:
+                # 获取一个空闲block，分配给seq
                 block_id = self.free_block_ids[0]
                 block = self._allocate_block(block_id)
             else:
@@ -81,13 +83,16 @@ class BlockManager:
                     block = self.blocks[block_id]
                     block.ref_count += 1
                 else:
+                    # 之前的序列请求过，但是被淘汰了
                     block = self._allocate_block(block_id)
+            # 更新hash表
             if h != -1:
                 block.update(h, token_ids)
                 self.hash_to_block_id[h] = block_id
             seq.block_table.append(block_id)
 
     def deallocate(self, seq: Sequence):
+        # 逆序释放
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
@@ -99,9 +104,13 @@ class BlockManager:
     def can_append(self, seq: Sequence) -> bool:
         return len(self.free_block_ids) >= (len(seq) % self.block_size == 1)
 
+    # decode阶段，给sequence追加token时，更新kv cache的block分配和hash表
     def may_append(self, seq: Sequence):
         block_table = seq.block_table
         last_block = self.blocks[block_table[-1]]
+        # 分类讨论，如果seq长度（decode 当前token + 之前的所有token）对block size取模等于1，说明需要新开一个block；
+        # 如果等于0，说明上一个block正好满了，需要更新hash表；
+        # 否则说明上一个block还没有满，不需要更新hash表
         if len(seq) % self.block_size == 1:
             assert last_block.hash != -1
             block_id = self.free_block_ids[0]
@@ -110,6 +119,7 @@ class BlockManager:
         elif len(seq) % self.block_size == 0:
             assert last_block.hash == -1
             token_ids = seq.block(seq.num_blocks-1)
+            # 注意，这里计算的是prefix cache的hash值
             prefix = self.blocks[block_table[-2]].hash if len(block_table) > 1 else -1
             h = self.compute_hash(token_ids, prefix)
             last_block.update(h, token_ids)

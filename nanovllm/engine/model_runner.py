@@ -151,6 +151,8 @@ class ModelRunner:
         return block_tables
 
     # TODO(leon): prefill阶段做kv cache缓冲准备
+    # slotmapping存储每个token应该写入的位置  
+    # blocktable存储每个序列的哪些块被缓存了，配合slotmapping告诉模型每个token应该读写kv cache的哪个位置
     def prepare_prefill(self, seqs: list[Sequence]):
         input_ids = []
         positions = []
@@ -162,6 +164,7 @@ class ModelRunner:
         block_tables = None
         for seq in seqs:
             seqlen = len(seq)
+            # 在allocate中更新seq的num_cached_tokens个数
             input_ids.extend(seq[seq.num_cached_tokens:])
             positions.extend(list(range(seq.num_cached_tokens, seqlen)))
             seqlen_q = seqlen - seq.num_cached_tokens
@@ -178,14 +181,19 @@ class ModelRunner:
                     end = start + self.block_size
                 else:
                     end = start + seq.last_block_num_tokens 
+                # 计算slot mapping，告诉模型每个token应该读写kv cache的哪个位置
                 slot_mapping.extend(list(range(start, end)))
-        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # prefix cache
+        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # 只有prefix cache
+            # 存在prefix cache，所以需要构造出block_tables传给模型，告诉模型每个序列的哪些块是被缓存了的
             block_tables = self.prepare_block_tables(seqs)
+        # 参考：https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html 
+        # 关于pin memory + nonblocking的用法
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        # 通过context传递给后续的layer执行
         set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
         return input_ids, positions
 
@@ -205,6 +213,7 @@ class ModelRunner:
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         context_lens = torch.tensor(context_lens, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
+        # 一定有，不可能为none
         block_tables = self.prepare_block_tables(seqs)
         set_context(False, slot_mapping=slot_mapping, context_lens=context_lens, block_tables=block_tables)
         return input_ids, positions

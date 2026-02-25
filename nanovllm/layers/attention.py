@@ -42,7 +42,7 @@ def store_kvcache_kernel(
 ):
     idx = tl.program_id(0)
     slot = tl.load(slot_mapping_ptr + idx)
-    if slot == -1: return     # Cuda graph相关
+    if slot == -1: return     # sequence padding相关
     key_offsets = idx * key_stride + tl.arange(0, D)
     value_offsets = idx * value_stride + tl.arange(0, D)
     key = tl.load(key_ptr + key_offsets)
