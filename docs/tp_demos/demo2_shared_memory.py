@@ -76,7 +76,7 @@ class FakeWorker:
         print(f"[worker] run() called: seqs={seqs}, is_prefill={is_prefill}")
 
     def exit(self):
-        print(f"[worker] exit() called, worker loop ending")
+        print("[worker] exit() called, worker loop ending")
 
 
 def worker_process(rank: int, event):
@@ -131,21 +131,21 @@ def rank0_main(events: list, world_size: int):
     time.sleep(0.3)
 
     # ── 模拟三次 call()：两次 run + 一次 exit ──
-    print(f"\n[rank 0] === call 1: run(prefill) ===")
+    print("\n[rank 0] === call 1: run(prefill) ===")
     write_shm(shm, events, "run", ["seq_a", "seq_b"], True)
     time.sleep(0.1)   # 实际中 rank 0 自己也在同步执行 run()
 
-    print(f"\n[rank 0] === call 2: run(decode) ===")
+    print("\n[rank 0] === call 2: run(decode) ===")
     write_shm(shm, events, "run", ["seq_a", "seq_b"], False)
     time.sleep(0.1)
 
-    print(f"\n[rank 0] === call 3: exit ===")
+    print("\n[rank 0] === call 3: exit ===")
     write_shm(shm, events, "exit")
     time.sleep(0.2)
 
     shm.close()
     shm.unlink()   # 只有创建者负责 unlink，对应 model_runner.py exit()
-    print(f"\n[rank 0] SharedMemory unlinked, done")
+    print("\n[rank 0] SharedMemory unlinked, done")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ def demo_shm_lifecycle():
     # 创建
     shm_creator = SharedMemory(name=SHM_TMP, create=True, size=1024)
     shm_creator.buf[0:5] = b"hello"
-    print(f"  creator: wrote 'hello' to shm[0:5]")
+    print("  creator: wrote 'hello' to shm[0:5]")
 
     # 其他进程打开（模拟）
     shm_reader = SharedMemory(name=SHM_TMP)
@@ -214,11 +214,11 @@ def demo_shm_lifecycle():
 
     # 关闭（每个打开者都要 close）
     shm_reader.close()
-    print(f"  reader : closed")
+    print("  reader : closed")
 
     shm_creator.close()
     shm_creator.unlink()   # 只有创建者 unlink，否则内存泄漏
-    print(f"  creator: closed + unlinked")
+    print("  creator: closed + unlinked")
 
     print("  ✓ SharedMemory 生命周期验证通过")
 
@@ -227,7 +227,7 @@ def demo_shm_lifecycle():
         SharedMemory(name=SHM_TMP)
         print("  ✗ 应该抛出异常！")
     except FileNotFoundError:
-        print(f"  ✓ unlink 后确认无法重新打开（FileNotFoundError 符合预期）")
+        print("  ✓ unlink 后确认无法重新打开（FileNotFoundError 符合预期）")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

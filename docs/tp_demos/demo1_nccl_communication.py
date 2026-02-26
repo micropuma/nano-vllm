@@ -251,22 +251,22 @@ def worker(rank: int, world_size: int):
     setup(rank, world_size, backend)
 
     print(f"\n{'='*60}")
-    print(f" Demo A: all_reduce (RowParallelLinear)")
+    print(" Demo A: all_reduce (RowParallelLinear)")
     print(f"{'='*60}")
     demo_all_reduce(rank, world_size, device)
 
     print(f"\n{'='*60}")
-    print(f" Demo B: VocabParallelEmbedding masked all_reduce")
+    print(" Demo B: VocabParallelEmbedding masked all_reduce")
     print(f"{'='*60}")
     demo_vocab_parallel_embedding(rank, world_size, device)
 
     print(f"\n{'='*60}")
-    print(f" Demo C: gather logits (ParallelLMHead)")
+    print(" Demo C: gather logits (ParallelLMHead)")
     print(f"{'='*60}")
     demo_gather_logits(rank, world_size, device)
 
     print(f"\n{'='*60}")
-    print(f" Demo D: barrier (SharedMemory 同步)")
+    print(" Demo D: barrier (SharedMemory 同步)")
     print(f"{'='*60}")
     demo_barrier(rank, world_size, device)
 

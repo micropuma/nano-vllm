@@ -196,3 +196,7 @@ cython_debug/
 
 # Models from huggingface  
 models/
+
+# nsight profile files
+*.nsys-rep
+*.sqlite

@@ -393,7 +393,9 @@ def demo_transformer_layer_tp(rank, world_size, device):
     # ── TP 版本 ──
     # Attention: ColumnParallel QKV
     qkv_layer = QKVParallelLinear(H, HEAD_DIM, NQ, NKV).to(device)
-    qkv_layer.weight_loader(q_w, "q"); qkv_layer.weight_loader(k_w, "k"); qkv_layer.weight_loader(v_w, "v")
+    qkv_layer.weight_loader(q_w, "q") 
+    qkv_layer.weight_loader(k_w, "k") 
+    qkv_layer.weight_loader(v_w, "v")
     q, k, v = qkv_layer(x)   # local heads only
 
     # Attention: 本地计算（简化：不含因果掩码/FlashAttn，直接 scaled dot product）
@@ -590,7 +592,7 @@ def worker(rank, world_size):
     demo_vocab_lmhead(rank, world_size, device)
 
     log(rank, f"\n{'='*60}")
-    log(rank, f" 所有 Demo 通过 ✓")
+    log(rank, " 所有 Demo 通过 ✓")
     log(rank, f"{'='*60}")
 
     cleanup()
