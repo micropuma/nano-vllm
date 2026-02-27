@@ -197,6 +197,8 @@ cython_debug/
 # Models from huggingface  
 models/
 
-# nsight profile files
+# nsight profile files & pytorch profiler json files
 *.nsys-rep
 *.sqlite
+*.json
+*.qdstrm
