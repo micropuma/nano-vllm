@@ -9,5 +9,15 @@ check:
 	ruff check
 	ruff format --check
 
-test:
+bench:
 	python bench.py
+
+profile:
+	nsys profile \
+		-t cuda,nvtx,osrt,cublas \
+		-o ./report \
+		--force-overwrite=true \
+		python example.py
+
+pytorch-profile:
+	python trace.py

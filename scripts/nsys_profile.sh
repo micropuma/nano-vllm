@@ -1,4 +1,4 @@
 nsys profile \
-    --trace=cuda,nvtx \
+    -t cuda,nccl,nvtx,osrt \
     -o ./report \
     python example.py
