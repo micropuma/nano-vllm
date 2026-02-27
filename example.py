@@ -7,12 +7,16 @@ import torch.cuda.nvtx as nvtx
 def main():
     path = os.path.expanduser("/home/douliyang/large/mlsys/nano-vllm/models/Qwen3-0.6B")
     tokenizer = AutoTokenizer.from_pretrained(path)
+    # 小模型TP并行似乎没啥意思
     llm = LLM(path, enforce_eager=True, tensor_parallel_size=1)
 
     sampling_params = SamplingParams(temperature=0.6, max_tokens=256)
     prompts = [
         "introduce yourself",
         "list all prime numbers within 100",
+        "explain AI compiler stack to me",
+        "Hi",
+        "give a detailed comparison between vllm, nano-vllm, sglang, mini-sglang, tensorrt, tensorrt-llm",
     ]
     prompts = [
         tokenizer.apply_chat_template(
@@ -23,10 +27,7 @@ def main():
         for prompt in prompts
     ]
 
-    # 辅助nsys工具抓取inference流程
-    nvtx.range_push("inference")
     outputs = llm.generate(prompts, sampling_params)
-    nvtx.range_pop()
 
     for prompt, output in zip(prompts, outputs):
         print("\n")
