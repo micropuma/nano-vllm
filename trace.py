@@ -1,10 +1,10 @@
 import os
 import torch
-import torch.cuda.nvtx as nvtx
 from torch.profiler import ProfilerActivity, profile, schedule
 from transformers import AutoTokenizer
 
 from nanovllm import LLM, SamplingParams
+from nanovllm.utils.nvtx import nvtx_range
 
 
 def build_prompts(tokenizer, prompts):
@@ -42,9 +42,8 @@ def profile_run(llm, prompts, sampling_params, trace_dir, tag):
 	)
 	with prof:
 		for iter in range(3):
-			nvtx.range_push(f"{tag}_iter{iter}")
-			_ = llm.generate(prompts, sampling_params, use_tqdm=False)
-			nvtx.range_pop()
+			with nvtx_range(f"{tag}_iter{iter}"):
+				_ = llm.generate(prompts, sampling_params, use_tqdm=False)
 
 			# send a signal to the profiler that the next iteration has started
 			prof.step()
