@@ -6,10 +6,28 @@ from multiprocessing.shared_memory import SharedMemory
 
 from nanovllm.config import Config
 from nanovllm.engine.sequence import Sequence
-from nanovllm.models.qwen3 import Qwen3ForCausalLM
 from nanovllm.layers.sampler import Sampler
 from nanovllm.utils.context import set_context, get_context, reset_context
 from nanovllm.utils.loader import load_model
+
+# architecture 名 → (模块路径, 类名)；新增模型只需在此表添加一行
+_ARCHITECTURE_MAP = {
+    "Qwen3ForCausalLM": ("nanovllm.models.qwen3", "Qwen3ForCausalLM"),
+    "LlamaForCausalLM": ("nanovllm.models.llama3", "Llama3ForCausalLM"),
+}
+
+
+# 根据 HF 配置动态获取模型类；如果架构不受支持则抛出异常
+def _get_model_class(hf_config):
+    import importlib
+    for arch in getattr(hf_config, "architectures", []):
+        if arch in _ARCHITECTURE_MAP:
+            module_path, class_name = _ARCHITECTURE_MAP[arch]
+            return getattr(importlib.import_module(module_path), class_name)
+    raise ValueError(
+        f"Unsupported architectures {hf_config.architectures!r}. "
+        f"Supported: {list(_ARCHITECTURE_MAP.keys())}"
+    )
 
 
 # 负责模型的加载与推理
@@ -30,7 +48,8 @@ class ModelRunner:
         default_dtype = torch.get_default_dtype()
         torch.set_default_dtype(hf_config.torch_dtype)
         torch.set_default_device("cuda")
-        self.model = Qwen3ForCausalLM(hf_config)
+        model_class = _get_model_class(hf_config)
+        self.model = model_class(hf_config)
         load_model(self.model, config.model)
         self.sampler = Sampler()
         self.warmup_model()
