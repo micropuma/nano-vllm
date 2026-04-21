@@ -169,10 +169,16 @@ class ModelRunner:
         block_tables = torch.tensor(block_tables, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         return block_tables
 
-    # TODO(leon): prefill阶段做kv cache缓冲准备
-    # slotmapping存储每个token应该写入的位置  
-    # blocktable存储每个序列的哪些块被缓存了，配合slotmapping告诉模型每个token应该读写kv cache的哪个位置
-    def prepare_prefill(self, seqs: list[Sequence]):
+    def prepare_prefill(self, seqs: list[Sequence], budget: int | None = None):
+        """Prepare prefill inputs. Supports both full prefill and chunked prefill.
+
+        When budget is None (non-chunked), processes all uncomputed tokens.
+        When budget is set (chunked), each sequence gets at most the remaining
+        budget worth of tokens, distributed in sequence order.
+
+        Returns (input_ids, positions, chunk_lens) where chunk_lens[i] is the
+        number of tokens processed for seqs[i] in this step.
+        """
         input_ids = []
         positions = []
         cu_seqlens_q = [0]
@@ -181,40 +187,52 @@ class ModelRunner:
         max_seqlen_k = 0
         slot_mapping = []
         block_tables = None
+        chunk_lens = []
+        budget_remaining = budget if budget is not None else float('inf')
+
         for seq in seqs:
-            seqlen = len(seq)
-            # 在allocate中更新seq的num_cached_tokens个数
-            input_ids.extend(seq[seq.num_cached_tokens:])
-            positions.extend(list(range(seq.num_cached_tokens, seqlen)))
-            seqlen_q = seqlen - seq.num_cached_tokens
-            seqlen_k = seqlen
-            cu_seqlens_q.append(cu_seqlens_q[-1] + seqlen_q)
-            cu_seqlens_k.append(cu_seqlens_k[-1] + seqlen_k)
-            max_seqlen_q = max(seqlen_q, max_seqlen_q)
-            max_seqlen_k = max(seqlen_k, max_seqlen_k)
+            start = seq.num_computed_tokens
+            if budget is not None:
+                end = min(start + int(budget_remaining), seq.num_prompt_tokens)
+            else:
+                end = len(seq)
+            chunk_len = end - start
+            chunk_lens.append(chunk_len)
+            budget_remaining -= chunk_len
+
+            input_ids.extend(seq[start:end])
+            positions.extend(list(range(start, end)))
+            cu_seqlens_q.append(cu_seqlens_q[-1] + chunk_len)
+            cu_seqlens_k.append(cu_seqlens_k[-1] + end)
+            max_seqlen_q = max(chunk_len, max_seqlen_q)
+            max_seqlen_k = max(end, max_seqlen_k)
+
             if not seq.block_table:    # warmup
                 continue
-            for i in range(seq.num_cached_blocks, seq.num_blocks):
-                start = seq.block_table[i] * self.block_size
-                if i != seq.num_blocks - 1:
-                    end = start + self.block_size
-                else:
-                    end = start + seq.last_block_num_tokens 
-                # 计算slot mapping，告诉模型每个token应该读写kv cache的哪个位置
-                slot_mapping.extend(list(range(start, end)))
-        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:    # 只有prefix cache
-            # 存在prefix cache，所以需要构造出block_tables传给模型，告诉模型每个序列的哪些块是被缓存了的
+
+            # Compute slot_mapping for the current chunk's token range.
+            # Handles arbitrary chunk boundaries (not necessarily block-aligned).
+            start_block_idx = start // self.block_size
+            end_block_idx = (end - 1) // self.block_size
+            for i in range(start_block_idx, end_block_idx + 1):
+                block_id = seq.block_table[i]
+                block_token_start = i * self.block_size
+                in_block_start = max(0, start - block_token_start)
+                in_block_end = min(self.block_size, end - block_token_start)
+                slot_start = block_id * self.block_size + in_block_start
+                slot_end = block_id * self.block_size + in_block_end
+                slot_mapping.extend(list(range(slot_start, slot_end)))
+
+        if cu_seqlens_k[-1] > cu_seqlens_q[-1]:
             block_tables = self.prepare_block_tables(seqs)
-        # 参考：https://docs.pytorch.org/tutorials/intermediate/pinmem_nonblock.html 
-        # 关于pin memory + nonblocking的用法
+
         input_ids = torch.tensor(input_ids, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         positions = torch.tensor(positions, dtype=torch.int64, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_q = torch.tensor(cu_seqlens_q, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         cu_seqlens_k = torch.tensor(cu_seqlens_k, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
         slot_mapping = torch.tensor(slot_mapping, dtype=torch.int32, pin_memory=True).cuda(non_blocking=True)
-        # 通过context传递给后续的layer执行
         set_context(True, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, slot_mapping, None, block_tables)
-        return input_ids, positions
+        return input_ids, positions, chunk_lens
 
     # TODO(leon): paged attention + kvcache来做decode阶段的准备
     def prepare_decode(self, seqs: list[Sequence]):
@@ -263,13 +281,49 @@ class ModelRunner:
             graph.replay()
             return self.model.compute_logits(graph_vars["outputs"][:bs])
 
-    # 这里是给模型做prefill和decode流程入口
-    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int]:
-        # 这里的input_ids和positions是rank 0自己准备的，其他rank的input_ids和positions是通过共享内存传过来的
-        input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs)
+    def run(self, seqs: list[Sequence], is_prefill: bool) -> list[int | None]:
+        if is_prefill and self.config.enable_chunked_prefill:
+            return self._run_chunked_prefill(seqs)
+
+        input_ids, positions, chunk_lens = self.prepare_prefill(seqs) if is_prefill else (
+            *self.prepare_decode(seqs), None)
         temperatures = self.prepare_sample(seqs) if self.rank == 0 else None
         logits = self.run_model(input_ids, positions, is_prefill)
         token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None
+        if is_prefill:
+            for seq in seqs:
+                seq.num_computed_tokens = seq.num_prompt_tokens
+        reset_context()
+        return token_ids
+
+    @torch.inference_mode()
+    def _run_chunked_prefill(self, seqs: list[Sequence]) -> list[int | None]:
+        budget = self.config.max_num_batched_tokens
+        input_ids, positions, chunk_lens = self.prepare_prefill(seqs, budget=budget)
+        hidden_states = self.model(input_ids, positions)
+
+        completing_indices = [
+            i for i, (seq, cl) in enumerate(zip(seqs, chunk_lens))
+            if seq.num_computed_tokens + cl >= seq.num_prompt_tokens
+        ]
+
+        token_ids = None
+        if self.rank == 0:
+            if completing_indices:
+                logits = self.model.compute_logits(hidden_states)
+                temperatures = self.prepare_sample(seqs)
+                all_token_ids = self.sampler(logits, temperatures).tolist()
+                completing_set = set(completing_indices)
+                token_ids = [
+                    all_token_ids[i] if i in completing_set else None
+                    for i in range(len(seqs))
+                ]
+            else:
+                token_ids = [None] * len(seqs)
+
+        for seq, cl in zip(seqs, chunk_lens):
+            seq.num_computed_tokens += cl
+
         reset_context()
         return token_ids
 

@@ -50,16 +50,22 @@ class LLMEngine:
         seq = Sequence(prompt, sampling_params)
         self.scheduler.add(seq)
 
-    # step by step生成token
-    # 1. prefill阶段，填充输入序列
-    # 2. decode阶段，逐步生成token
-    # 3. 不断更新scheduler的状态
     def step(self):
         seqs, is_prefill = self.scheduler.schedule()
+        if is_prefill:
+            prev_computed = [seq.num_computed_tokens for seq in seqs]
         token_ids = self.model_runner.call("run", seqs, is_prefill)
-        self.scheduler.postprocess(seqs, token_ids)
+        if is_prefill and self.scheduler.enable_chunked_prefill:
+            self.scheduler.postprocess_chunked_prefill(seqs, token_ids)
+        else:
+            self.scheduler.postprocess(seqs, token_ids)
         outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
-        num_tokens = sum(len(seq) for seq in seqs) if is_prefill else -len(seqs)
+        if is_prefill:
+            num_tokens = sum(
+                seq.num_computed_tokens - old for seq, old in zip(seqs, prev_computed)
+            )
+        else:
+            num_tokens = -len(seqs)
         return outputs, num_tokens
 
     def is_finished(self):
